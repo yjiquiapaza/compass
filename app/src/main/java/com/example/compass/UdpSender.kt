@@ -11,19 +11,36 @@ import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
 
-class UdpSender(private val targetIp: String, private val targetPort: Int) {
+class UdpSender(private val targetPort: Int) {
     private var socket: DatagramSocket? = null
     private var job: Job? = null
 
-    fun start(getData: () -> String) {
+    private var currentIp: String = ""
+    private var cachedAddress: InetAddress? = null
+
+    fun start(getIp: () -> String, getData: () -> String) {
         job = CoroutineScope(Dispatchers.IO).launch {
             socket = DatagramSocket()
-            val address = InetAddress.getByName(targetIp)
             while (isActive){
                 try {
-                    val bytes = getData().toByteArray()
-                    val packet = DatagramPacket(bytes, bytes.size, address, targetPort)
-                    socket?.send(packet)
+
+                    val ip = getIp()
+
+                    if (ip.isNotBlank()) {
+                        if (ip != currentIp) {
+                            currentIp = ip
+                            cachedAddress = InetAddress.getByName(ip)
+                            Log.d("UpSender", "Update IP $ip")
+                        }
+
+                        val bytes = getData().toByteArray()
+                        val packet = DatagramPacket(bytes, bytes.size, cachedAddress, targetPort)
+
+                        socket?.send(packet)
+                    }
+                } catch (e: java.net.SocketException){
+                    Log.w("UpSender", "Closed socket, sender is stoper: ${e.message}")
+
                 } catch (e: Exception) {
                     Log.e("UdpSender", "Error sending: ${e.message}")
                 }
