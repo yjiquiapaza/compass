@@ -40,6 +40,9 @@ class SensorController(context: Context) : SensorEventListener {
     var heading by mutableStateOf(0f)
         private set
 
+    var latitud by mutableStateOf (0.0)
+    var longitud by mutableStateOf (0.0)
+
     var decline = 0f
 
     fun start() {
