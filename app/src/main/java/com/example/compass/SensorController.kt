@@ -43,6 +43,8 @@ class SensorController(context: Context) : SensorEventListener {
     var latitud by mutableStateOf (0.0)
     var longitud by mutableStateOf (0.0)
 
+    var updateLocation by mutableStateOf(false)
+
     var decline = 0f
 
     fun start() {

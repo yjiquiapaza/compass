@@ -21,7 +21,6 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -30,7 +29,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -88,8 +86,9 @@ class MainActivity : ComponentActivity() {
 }
 
 @SuppressLint("MissingPermission")
-private fun getDeclination(context: Context, controller: SensorController) {
-    if (controller.latitud != 0.0 || controller.longitud != 0.0) return
+private fun getDeclination(context: Context, controller: SensorController, force: Boolean = false, count: Int = 0) {
+    if (!force && controller.latitud != 0.0 || controller.longitud != 0.0) return
+    controller.updateLocation = false
     val fusedClient = LocationServices.getFusedLocationProviderClient(context)
 
     fusedClient.getCurrentLocation(
@@ -111,9 +110,12 @@ private fun getDeclination(context: Context, controller: SensorController) {
         } else {
             Log.e("Location", "getCurrentLocation get null values...")
             Handler(Looper.getMainLooper()).postDelayed({
-                getDeclination(context, controller)
+                getDeclination(context, controller, force)
             }, 3000)
         }
+    }.addOnFailureListener { e ->
+        Log.e("Location", "Error in get Location ${e.message}")
+        controller.updateLocation = false
     }
 }
 
@@ -174,15 +176,12 @@ fun SensorDisplay(controller: SensorController, udpSender: UdpSender) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(24.dp),
+            .padding(8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
 
         ExpandedSection(title = "Magnetic Field", expandedByDefault = true) {
-            Text(
-                text = "Total Magnetic Field", style = MaterialTheme.typography.titleMedium
-            )
             Text(
                 text = "%.1f µT".format(controller.magneticField),
                 style = MaterialTheme.typography.displayMedium
@@ -195,72 +194,83 @@ fun SensorDisplay(controller: SensorController, udpSender: UdpSender) {
             Text("Y: %.1f µT".format(controller.magY))
             Text("Z: %.1f µT".format(controller.magZ))
         }
-        Spacer(modifier = Modifier.height(32.dp))
 
-        Text(
-            text = "Magnetic Bearing", style = MaterialTheme.typography.titleMedium
-        )
-        Text(
-            text = "%.0f".format(controller.heading),
-            style = MaterialTheme.typography.displayLarge
-        )
+        Spacer(modifier = Modifier.height(4.dp))
 
-        Spacer(modifier = Modifier.height(32.dp))
-        Text(
-            "Destination IP (Quest 3) ", style = MaterialTheme.typography.titleMedium
-        )
-
-        OutlinedTextField(
-            value = ipText,
-            onValueChange = {
-                ipText = it
-                messageError = null
-            },
-            label = { Text("Example: 192.168.1.50") },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            isError = messageError != null
-        )
-
-        Button(onClick = {
-            if (isIpValid(ipText)) {
-                IpPreferences.saveIp(context, ipText)
-                ipSaved = ipText
-                messageError = null
-            } else {
-                messageError = "IP invalid, Format: 192.168.1.50"
-            }
-        }) {
-            Text("Save")
-        }
-
-        if (ipSaved.isBlank()) {
+        ExpandedSection(title = "Magnetic Bearing", expandedByDefault = true) {
             Text(
-                "⚠️ IP without configuration, nothing is being sent",
-                color = MaterialTheme.colorScheme.error
+                text = "%.0f".format(controller.heading),
+                style = MaterialTheme.typography.displayLarge
             )
-        } else {
-            Text("Sending to: $ipSaved", style = MaterialTheme.typography.bodySmall)
         }
-        Spacer(modifier = Modifier.height(32.dp))
-        Location(controller.latitud, controller.longitud)
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        ExpandedSection(title = "IP (Quest 3)", expandedByDefault = true) {
+
+            OutlinedTextField(
+                value = ipText,
+                onValueChange = {
+                    ipText = it
+                    messageError = null
+                },
+                label = { Text("Example: 192.168.1.50") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                isError = messageError != null
+            )
+
+            Button(onClick = {
+                if (isIpValid(ipText)) {
+                    IpPreferences.saveIp(context, ipText)
+                    ipSaved = ipText
+                    messageError = null
+                } else {
+                    messageError = "IP invalid, Format: 192.168.1.50"
+                }
+            }) {
+                Text("Update IP")
+            }
+
+            if (ipSaved.isBlank()) {
+                Text(
+                    "⚠️ IP without configuration, nothing is being sent",
+                    color = MaterialTheme.colorScheme.error
+                )
+            } else {
+                Text("Sending to: $ipSaved", style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+
+        ExpandedSection(title = "Current Location (GPS)") {
+            Location(controller, context)
+        }
     }
 }
 
 @Composable
-fun Location(latitud: Double, longitud: Double) {
+fun Location(controller: SensorController, context: Context) {
     Column {
-        Text("Ubicación (GPS)", style = MaterialTheme.typography.titleSmall)
-
-        if (latitud == 0.0 && longitud == 0.0) {
+        if (controller.latitud == 0.0 && controller.longitud == 0.0) {
             Text(
-                "Obteniendo ubicación...",
+                "Getting current Location ...",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         } else {
-            Text("Lat: %.6f".format(java.util.Locale.US, latitud))
-            Text("Lon: %.6f".format(java.util.Locale.US, longitud))
+            Text("Lat: %.6f".format(java.util.Locale.US, controller.latitud))
+            Text("Lon: %.6f".format(java.util.Locale.US, controller.longitud))
+        }
+        Button(
+            onClick = { getDeclination(context, controller, force = true) },
+            enabled = !controller.updateLocation
+        ) {
+            if (controller.updateLocation) {
+                Text("Updating ...")
+            } else {
+                Text("Update Location")
+            }
         }
     }
 }
@@ -277,7 +287,7 @@ fun ExpandedSection(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable { expanded = !expanded }
-                .padding(vertical = 8.dp),
+                .padding(vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = if (expanded) "▲" else "▼",
@@ -301,7 +311,12 @@ fun ExpandedSection(
             enter = expandVertically(),
             exit = shrinkVertically()
         ) {
-            Column(modifier = Modifier.padding(bottom = 12.dp)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 4.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
                 content()
             }
         }
