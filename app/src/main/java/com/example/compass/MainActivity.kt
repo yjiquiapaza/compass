@@ -62,7 +62,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         sensorController = SensorController(this)
-        udpSender = UdpSender(targetPort = 9000)
+        udpSender = UdpSender(this, targetPort = 9000)
 
         setContent {
             MaterialTheme {
@@ -86,9 +86,9 @@ class MainActivity : ComponentActivity() {
 }
 
 @SuppressLint("MissingPermission")
-private fun getDeclination(context: Context, controller: SensorController, force: Boolean = false, count: Int = 0) {
+private fun getDeclination(context: Context, controller: SensorController, force: Boolean = false) {
     if (!force && controller.latitud != 0.0 || controller.longitud != 0.0) return
-    controller.updateLocation = false
+    controller.updateLocation = true
     val fusedClient = LocationServices.getFusedLocationProviderClient(context)
 
     fusedClient.getCurrentLocation(
@@ -107,6 +107,7 @@ private fun getDeclination(context: Context, controller: SensorController, force
                     System.currentTimeMillis()
                 )
             controller.decline = geoField.declination
+            controller.updateLocation = false
         } else {
             Log.e("Location", "getCurrentLocation get null values...")
             Handler(Looper.getMainLooper()).postDelayed({
@@ -159,7 +160,6 @@ fun SensorDisplay(controller: SensorController, udpSender: UdpSender) {
 
     LaunchedEffect(Unit) {
         udpSender.start(
-            getIp = { ipSaved },
             getData = {
                 String.format(
                     java.util.Locale.US,
@@ -206,6 +206,7 @@ fun SensorDisplay(controller: SensorController, udpSender: UdpSender) {
 
         Spacer(modifier = Modifier.height(4.dp))
 
+        /*
         ExpandedSection(title = "IP (Quest 3)", expandedByDefault = true) {
 
             OutlinedTextField(
@@ -243,6 +244,7 @@ fun SensorDisplay(controller: SensorController, udpSender: UdpSender) {
         }
         Spacer(modifier = Modifier.height(4.dp))
 
+         */
         ExpandedSection(title = "Current Location (GPS)") {
             Location(controller, context)
         }
