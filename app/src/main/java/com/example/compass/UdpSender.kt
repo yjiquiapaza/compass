@@ -11,7 +11,6 @@ import kotlinx.coroutines.launch
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
-import java.net.InetSocketAddress
 import java.net.NetworkInterface
 import java.util.Collections
 
@@ -19,31 +18,33 @@ class UdpSender(private val context: Context, private val targetPort: Int) {
     private var socket: DatagramSocket? = null
     private var job: Job? = null
 
+    private var broadcastAddress: InetAddress? = null
+    private var lastInterfaceCheck = 0L
+    private val INTERFACE_CHECK_INTERVAL_MS = 3000L
+
+
     fun start(getData: () -> String) {
         job = CoroutineScope(Dispatchers.IO).launch {
-            val networkInfo = getHotspotNetworkInfo()
 
-            if (networkInfo == null) {
-                Log.e("UdpSender", "No se encontró la interfaz del hotspot")
-                return@launch
-            }
-
-            val (localAddress, broadcastAddress) = networkInfo
-            Log.d(
-                "UdpSender",
-                "Interfaz hotspot: local=${localAddress.hostAddress}, broadcast=${broadcastAddress.hostAddress}"
-            )
-
-            socket = DatagramSocket(null)
-            socket?.reuseAddress = true
-            socket?.bind(InetSocketAddress(localAddress, 0))   // ← FORZAR la interfaz de salida
+            socket = DatagramSocket()
             socket?.broadcast = true
+
+            refreshBroadcastAddress()
 
             while (isActive) {
                 try {
-                    val bytes = getData().toByteArray()
-                    val packet = DatagramPacket(bytes, bytes.size, broadcastAddress, targetPort)
-                    socket?.send(packet)
+                    val now = System.currentTimeMillis()
+                    if (broadcastAddress == null || now - lastInterfaceCheck > INTERFACE_CHECK_INTERVAL_MS) {
+                        refreshBroadcastAddress()
+                    }
+
+                    val addr = broadcastAddress
+                    if (addr != null) {
+                        val bytes = getData().toByteArray()
+                        val packet = DatagramPacket(bytes, bytes.size, addr, targetPort)
+                        socket?.send(packet)
+                    }
+
                 } catch (e: java.net.SocketException) {
                     Log.w("UdpSender", "Closed socket, sender stopped: ${e.message}")
                 } catch (e: Exception) {
@@ -54,32 +55,38 @@ class UdpSender(private val context: Context, private val targetPort: Int) {
         }
     }
 
-    // Devuelve (IP propia de la interfaz, broadcast de la interfaz)
-    private fun getHotspotNetworkInfo(): Pair<InetAddress, InetAddress>? {
+    private fun refreshBroadcastAddress() {
+        lastInterfaceCheck = System.currentTimeMillis()
+
         try {
             val interfaces = Collections.list(NetworkInterface.getNetworkInterfaces())
 
-            // Prioridad: buscar la interfaz del hotspot
             for (networkInterface in interfaces) {
                 if (networkInterface.isLoopback || !networkInterface.isUp) continue
                 if (!networkInterface.displayName.contains("swlan")) continue
 
                 for (interfaceAddress in networkInterface.interfaceAddresses) {
                     val broadcast = interfaceAddress.broadcast
-                    val local = interfaceAddress.address
-                    if (broadcast != null && local != null) {
-                        Log.d(
-                            "UdpSender",
-                            "swlan encontrada: local=${local.hostAddress}, broadcast=${broadcast.hostAddress}, prefix=${interfaceAddress.networkPrefixLength}"
-                        )
-                        return Pair(local, broadcast)
+                    if (broadcast != null) {
+                        if (broadcastAddress == null || broadcastAddress?.hostAddress != broadcast.hostAddress) {
+                            Log.d("UdpSender", "Broadcast actualizado: ${broadcast.hostAddress}")
+                        }
+                        broadcastAddress = broadcast
+                        return
                     }
                 }
             }
+
+            if (broadcastAddress == null) {
+                Log.w(
+                    "UdpSender",
+                    "swlan0 aún no disponible, reintentando en ${INTERFACE_CHECK_INTERVAL_MS}ms"
+                )
+            }
+
         } catch (e: Exception) {
-            Log.e("UdpSender", "Error obteniendo info de red: ${e.message}")
+            Log.e("UdpSender", "Error obteniendo broadcast: ${e.message}")
         }
-        return null
     }
 
     fun stop() {
